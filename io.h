@@ -36,9 +36,9 @@
 #ifndef IO_DEF
     #ifdef IO_STATIC
         #define IO_DEF  static
+    #endif              /* IO_STATIC */
 #else
     #define IO_DEF  extern
-    #endif              /* IO_STATIC */
 #endif                  /* IO_DEF */
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -46,10 +46,12 @@
     #define ATTRIB_WARN_UNUSED_RESULT       __attribute__((warn_unused_result))
     #define ATTRIB_MALLOC                   __attribute__((malloc))
 #else
-    #define ATTRIB_NONNULL(...)             /* If only. */
-    #define ATTRIB_WARN_UNUSED_RESULT       /* If only. */
-    #define ATTRIB_MALLOC                   /* If only. */ 
+    #define ATTRIB_NONNULL(...)             /**/
+    #define ATTRIB_WARN_UNUSED_RESULT       /**/
+    #define ATTRIB_MALLOC                   /**/ 
 #endif                          /* defined(__GNUC__) || define(__clang__) */
+
+#define IO_CHUNK_SIZE          (1024 * 64)
 
 /* 
  * Reads the file pointed to by `stream` to a buffer and returns it.
@@ -89,18 +91,16 @@ IO_DEF char **io_split_lines(char *s, size_t *nlines)
 
 /* 
  * Reads the next chunk of data from the stream referenced to by `stream`.
- * `chunk` must be a pointer to an array of at least size IO_CHUNK_SIZE. 
+ * `chunk` must be a pointer to an array of size IO_CHUNK_SIZE. 
  *
- * If `size` is a non-null pointer, it'd hold the size of the chunk, else it
- * would hold 0 on failure.
- *
- * Returns a pointer to the chunk on success, or NULL elsewise. The returned
- * chunk is null-terminated.
+ * Returns the number of bytes read on success, or zero elsewise. The chunk is 
+ * not null-terminated.
  *
  * `io_read_next_chunk()` does not distinguish between end-of-file and error; the
  * routines `feof()` and `ferror()` must be used to determine which occured.
  */
-IO_DEF char *io_read_next_chunk(FILE *restrict stream, char *restrict chunk, size_t *size)
+IO_DEF size_t io_read_next_chunk(FILE stream[static 1], 
+                                 char chunk[static IO_CHUNK_SIZE])
     ATTRIB_NONNULL(1, 2) ATTRIB_WARN_UNUSED_RESULT;
 
 /* 
@@ -179,8 +179,7 @@ IO_DEF bool io_write_file(FILE *stream, size_t nbytes, const char data[static nb
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define IO_CHUNK_SIZE          ((size_t)1024 * 8)
-#define IO_TOKEN_CHUNK_SIZE    ((size_t)1024 * 2)
+#define IO_TOKEN_CHUNK_SIZE    (1024 * 2)
 
 #define GROW_CAPACITY(capacity, initial) \
         ((capacity) < initial ? initial : (capacity) * 2)
@@ -266,32 +265,23 @@ IO_DEF char **io_split_lines(char *s, size_t *nlines)
     return io_split_by_delim(s, "\n", nlines);
 }
 
-IO_DEF char *io_read_next_chunk(FILE *stream, char *chunk, size_t *size)
+IO_DEF size_t io_read_next_chunk(FILE stream[static 1], 
+                                 char chunk[static IO_CHUNK_SIZE])
 {
-    if (size) {
-        *size = 0;
-    }
-    
     const size_t rcount = fread(chunk, 1, IO_CHUNK_SIZE, stream);
 
     if (rcount < IO_CHUNK_SIZE) {
         if (!feof(stream)) {
             /* A read error occured. */
-            return NULL;
+            return 0;
         }
 
         if (rcount == 0) {
-            return NULL;
+            return 0;
         }
     }
     
-    chunk[rcount] = '\0';
-
-    if (size) {
-        *size = rcount;
-    }
-
-    return chunk;
+    return rcount;
 }
 
 IO_DEF char *io_read_line(FILE *stream, size_t *size)
@@ -505,10 +495,9 @@ int main(int argc, char **argv)
  
     /* This can be allocated dynamically on the heap too. */
     char chunk[IO_CHUNK_SIZE];
-    char *p = chunk;
-    size_t chunk_size = 0;
-
-    while ((p = io_read_next_chunk(fp, chunk, &chunk_size))) {
+    size_t chunk_size = -1;
+    
+    while (chunk_size = io_read_next_chunk(fp, chunk)) {
         printf("Read a chunk of size: %zu.\n", chunk_size); 
         puts(chunk);
     }
