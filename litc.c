@@ -8,43 +8,48 @@
 #define IO_STATIC
 #include "io.h"
 
+#include <errno.h>
+#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <assert.h>
-
 #include <unistd.h>
-#include <getopt.h>
 
-/* C2X/C23 or later? */
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202000L
-    #include <stddef.h>             /* nullptr_t */
-#else
-    #include <stdbool.h>            /* bool, true, false */
+/* In C2X/C23 or later, nullptr is a keyword.
+ * Patch up C18 (__STDC_VERSION__ == 201710L) and earlier versions.
+ */
+#if !defined(__STDC_VERSION__) || __STDC_VERSION__ <= 201710L
     #define nullptr ((void *)0)
-    typedef void *nullptr_t;
-#endif                          /* nullptr, nullptr_t */
+#endif
 
-#define SHORT_OP_LIST   "b:e:o:h"
+static const char *argv0            = "litc";
+static const char short_options[]   = "b:e:o:h";
+
+static const struct option long_options[] = {
+    { "begin",  required_argument   nullptr,    'b' },
+    { "end",    required_argument   nullptr,    'e' },
+    { "help",   no_argument,        nullptr,    'h' },
+    { "output", required_argument   nullptr,    'o' },
+    { nullptr,  0                   nullptr,     0  },
+};
+
 #define DEFAULT_BEGIN   "\\begin{code}"
 #define DEFAULT_END     "\\end{code}"
 
-/* Do we even need getopt? */
-typedef struct {
-    const char *bflag;          /* Begin flag. */
-    const char *eflag;          /* End flag. */
-    FILE *output;               /* Output to FILE. */
-} flags;
+static const char *bflag = DEFAULT_BEGIN;       /* Begin flag. */
+static const char *eflag = DEFAULT_END; /* End flag. */
+static FILE *output = NULL;     /* Output file stream. */
+static FILE *input = NULL;      /* Input file stream. */
+const char *input_fn = "stdin";
 
 static void help(void)
 {
-    printf("Usage: litc [OPTIONS] SRC\n\n"
-        "  litc - extract code from a LaTEX document.\n\n"
+    printf("Usage: %s [OPTIONS] SRC\n\n"
+        "  %s - extract code from a LaTEX document.\n\n"
         "Options:\n"
-        "  -b, --begin          Line that denotes the beginning of the code\n"
+        "  -b, --begin=MARKER   Line that denotes the beginning of the code\n"
         "                       block in the markup langugage. Default: %s.\n"
-        "  -e, --end            Line that denotes the end of the code block in\n" 
+        "  -e, --end=MARKER     Line that denotes the end of the code block in\n"
         "                       the markup language. Default: %s.\n"
         "  -h, --help           Displays this message and exits.\n"
         "  -o, --output=FILE    Writes result to FILE instead of standard output.\n\n"
@@ -52,54 +57,51 @@ static void help(void)
         "For Markdown, they can be:\n"
         "  ```python\n"
         "  # Some code here\n"
-        "  ```\n",
-        DEFAULT_BEGIN, DEFAULT_END);
+        "  ```\n", argv0, argv0, DEFAULT_BEGIN, DEFAULT_END);
     exit(EXIT_SUCCESS);
 }
 
 static void err_and_fail(void)
 {
-    fputs("The syntax of the command is incorrect.\n"
-        "Try litc -h for more information.\n", stderr);
+    fprintf(stderr, "The syntax of the command is incorrect.\n"
+        "Use: %s -h for more information.\n", argv0);
     exit(EXIT_FAILURE);
 }
 
-static void parse_options(const struct option   long_options[static 1],
-                          flags                 opt_ptr[static 1], 
-                          int                   argc, 
-                          char *                argv[static argc])
+static void parse_options(int argc, char *argv[static argc])
 {
-    while (true) {
-        const int c =
-            getopt_long(argc, argv, SHORT_OP_LIST, long_options, nullptr);
+    int c = 0;
 
-        if (c == -1) {
-            break;
-        }
+    output = stdout;
 
+    while ((c =
+            getopt_long(argc, argv, short_options, long_options,
+                nullptr)) != -1) {
         switch (c) {
             case 'e':
             case 'b':
                 if (optarg == nullptr) {
                     err_and_fail();
                 }
-                *(c == 'b' ? &opt_ptr->bflag : &opt_ptr->eflag) = optarg;
+                *(c == 'b' ? &bflag : &eflag) = optarg;
                 break;
             case 'h':
                 help();
                 break;
             case 'o':
                 /* If -o was provided more than once. */
-                if (opt_ptr->output != stdout) {
-                    fprintf(stderr, "Error: Multiple -o flags provided.\n");
+                if (output != stdout) {
+                    fprintf(stderr, "%s: error: multiple -o flags provided.\n", argv0);
                     err_and_fail();
                 }
 
                 errno = 0;
-                opt_ptr->output = fopen(optarg, "a");
+                output = fopen(optarg, "a");
 
-                if (opt_ptr->output == nullptr) {
-                    perror(optarg);
+                if (output == nullptr) {
+                    fprintf(stderr,
+                        "%s: failed to open file '%s' for writing: %s\n", argv0,
+                        optarg, errno ? strerror(errno) : "unknown error");
                     exit(EXIT_FAILURE);
                 }
                 break;
@@ -109,146 +111,97 @@ static void parse_options(const struct option   long_options[static 1],
                 err_and_fail();
                 break;
         }
+
+        if (strcmp(eflag, bflag) == 0) {
+            fprintf(stderr, "%s: the start and end markers must be different "
+                "(both are '%s')\n", argv0, eflag);
+            exit(EXIT_FAILURE);
+        }
     }
 }
 
-static bool write_codelines(flags   options[static 1],
-                            size_t  nlines, 
-                            char *  lines[static nlines])
+static int process(size_t nlines, char *lines[static nlines])
 {
-    /* Would these 7 variables be better expressed as a struct? */
-    /* Perhaps:
-     *
-     * What would be a better name for this struct?
-     *
-     * struct {
-     *     FILE *const f;
-     *     const char *const begin_marker;
-     *     const char *const end_marker;
-     *     size_t ncodelines;       // No. of lines seen so far. 
-     *     size_t curr_line;
-     *     size_t last_begin_pos;
-     *     bool code_mode;
-     * } code = {options->output,
-     *           options->bflag ? options->bflag : DEFAULT_BEGIN,
-     *           options->eflag ? options->eflag : DEFAULT_END,
-     *           1,
-     *           1,
-     *           0,
-     *           false
-     * }; 
-     */
-    const char *const begin_marker =
-        options->bflag ? options->bflag : DEFAULT_BEGIN;
-    const char *const end_marker =
-        options->eflag ? options->eflag : DEFAULT_END;
-    FILE *const f = options->output;
-
-    if (f != stdout && ftruncate(fileno(f), 0)) {
-        perror("seek()");
-        return false;
+    /* ftruncate() sets errno. */
+    if (output != stdout && ftruncate(fileno(output), 0) != 0) {
+        perror("ftruncate()");
+        return EXIT_FAILURE;
     }
 
-    bool code_mode = false;
-    size_t ncodelines = 1;
-    size_t curr_line = 1;
-    size_t last_begin_pos = 0;
+    enum { COMMENT, CODE } mode = COMMENT;
+    size_t lineno = 1;
+    size_t num_code_blocks = 0;
 
-    for (size_t i = 0; i < nlines; ++i, ++curr_line) {
-        if (code_mode) {
-            if (strcmp(lines[i], begin_marker) == 0) {
-                fprintf(stderr, "Error: %s missing, %s started at line: %zu.\n",
-                    end_marker, begin_marker, last_begin_pos);
-                goto cleanup_and_fail;
-            }
-
-            if (strcmp(lines[i], end_marker) == 0) {
-                code_mode = false;
-            } else {
-                if (fprintf(f, "%s\n", lines[i]) < 0) {
-                    perror("fprintf()");
-                    goto cleanup_and_fail;
-                }
-                ++ncodelines;
+    for (size_t i = 0; i < nlines; ++i, ++lineno) {
+        if (mode == CODE) {
+            if (strcmp(lines[i], bflag) == 0) {
+                fprintf(stderr,
+                    "%s: error: found begin marker '%s' in file '%s' line %zu in code mode.\n",
+                    argv0, bflag, input_fn, lineno);
+                return EXIT_FAILURE;
+            } else if (strcmp(lines[i], eflag) == 0) {
+                mode = COMMENT;
+            } else if (fprintf(output, "%s\n", lines[i]) < 0) {
+                fprintf(stderr,
+                    "%s: error: failed to write to output file while reading file '%s' line %zu.\n",
+                    argv0, input_fn, lineno);
+                return EXIT_FAILURE;
             }
         } else {
-            if (strcmp(lines[i], end_marker) == 0) {
-                fprintf(stderr, "Error: spurious %s at line: %zu.\n",
-                    end_marker, curr_line);
-                goto cleanup_and_fail;
+            if (strcmp(lines[i], eflag) == 0) {
+                fprintf(stderr,
+                    "%s: error: found end marker '%s' in file '%s' line %zu while in comment mode.\n.",
+                    argv0, eflag, input_fn, lineno);
+                return EXIT_FAILURE;
+            } else if (strcmp(lines[i], bflag) == 0) {
+                ++num_code_blocks;
+                mode = CODE;
             }
 
-            code_mode = strcmp(lines[i], begin_marker) == 0;
-
-            if (code_mode) {
-                /* Only print newlines after the first code block. */
-                if (ncodelines > 1) {
-                    fputc('\n', f);
-                }
-
-                last_begin_pos = curr_line;
-            }
         }
     }
 
-    if (code_mode) {
-        fprintf(stderr, "Error: %s missing. %s started at line: %zu.\n",
-            end_marker, begin_marker, last_begin_pos);
-        goto cleanup_and_fail;
+    if (mode != COMMENT) {
+        fprintf(stderr, "%s: file '%s' missing a code end marker '%s'.\n",
+            argv0, input_fn, eflag);
+        return EXIT_FAILURE;
     }
 
-    if (ncodelines == 0) {
-        fprintf(stderr, "Error: no code blocks were found in the file.\n");
-        goto cleanup_and_fail;
+    if (num_code_blocks == 0) {
+        fprintf(stderr, "%s: file '%s' contained zero code blocks.\n", argv0,
+            input_fn);
+        return EXIT_FAILURE;
     }
 
-    goto success;
-
-  cleanup_and_fail:
-    if (f != stdout) {
-        fclose(f);
-    }
-
-    return false;
-
-  success:
-    return f == stdout || !fclose(f);
+    return EXIT_SUCCESS;
 }
 
 int main(int argc, char *argv[])
 {
-
     /* Sanity check. POSIX requires the invoking process to pass a non-null
      * argv[0]. 
      */
-    if (!argv) {
+    if (argv[0] == nullptr) {
         fputs("A NULL argv[0] was passed through an exec system call.\n",
             stderr);
         return EXIT_FAILURE;
     }
 
-    static const struct option long_options[] = {
-        { "begin",  required_argument,  nullptr,    'b' },
-        { "end",    required_argument,  nullptr,    'e' },
-        { "help",   no_argument,        nullptr,    'h' },
-        { "output", required_argument,  nullptr,    'o' },
-        { nullptr,  0,                  nullptr,     0  },
-    };
+    int status = EXIT_FAILURE;
 
-    FILE *in_file = stdin;
-    flags options = { nullptr, nullptr, stdout };
+    argv0 = argv[0];
+    input = stdin;
 
-    parse_options(long_options, &options, argc, argv);
+    parse_options(argc, argv);
 
     if ((optind + 1) == argc) {
-        in_file = fopen(argv[optind], "r");
-        if (!in_file) {
-            perror(argv[optind]);
-
-            if (options.output) {
-                fclose(options.output);
-            }
-            return EXIT_FAILURE;
+        errno = 0;
+        input = fopen(argv[optind], "r");
+        input_fn = argv[optind];
+        if (input == nullptr) {
+            fprintf(stderr, "%s: failed to read file '%s' for reading: %s\n",
+                argv0, input_fn, errno ? strerror(errno) : "unknown error");
+            goto cleanup_and_fail;
         }
     }
 
@@ -256,30 +209,36 @@ int main(int argc, char *argv[])
         err_and_fail();
     }
 
+    // Since we are already assuming POSIX support, we can just dump io.h and
+    // use getline().
+    errno = 0;
     size_t nbytes = 0;
-    char *const content = io_read_file(in_file, &nbytes);
+    char *const content = io_read_file(input, &nbytes);
     size_t nlines = 0;
     char **lines = io_split_lines(content, &nlines);
-    int status = EXIT_FAILURE;
 
-    if (!lines) {
-        perror("fread()");
+    if (lines == 0) {
+        fprintf(stderr, "%s: failed to read file '%s': %s\n",
+            argv0, input_fn, errno ? strerror(errno) : "unknown error");
         goto cleanup_and_fail;
     }
 
-    if (!write_codelines(&options, nlines, lines)) {
+    if (process(nlines, lines) != EXIT_SUCCESS) {
         goto cleanup_and_fail;
     }
 
     status = EXIT_SUCCESS;
 
   cleanup_and_fail:
-    /* As we're exiting, we don't need to free anything. */
-    /* free(lines); */
-    /* free(content); */
+    if (input != stdin) {
+        fclose(input);
+    }
 
-    if (in_file != stdin) {
-        fclose(in_file);
+    if (output != stdout) {
+        if (fclose(output) != 0) {
+            fprintf(stderr, "%s: failed to close output file.\n", argv0);
+            return status;
+        }
     }
 
     return status;
