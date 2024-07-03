@@ -26,11 +26,11 @@ static const char *argv0            = "litc";
 static const char short_options[]   = "b:e:o:h";
 
 static const struct option long_options[] = {
-    { "begin",  required_argument   nullptr,    'b' },
-    { "end",    required_argument   nullptr,    'e' },
-    { "help",   no_argument,        nullptr,    'h' },
-    { "output", required_argument   nullptr,    'o' },
-    { nullptr,  0                   nullptr,     0  },
+    { "begin",  required_argument,   nullptr,    'b' },
+    { "end",    required_argument,   nullptr,    'e' },
+    { "help",   no_argument,         nullptr,    'h' },
+    { "output", required_argument,   nullptr,    'o' },
+    { nullptr,  0,                   nullptr,     0  },
 };
 
 #define DEFAULT_BEGIN   "\\begin{code}"
