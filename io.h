@@ -5,8 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* 
- * To use, do this:
+/* To use, do this:
  *   #define IO_IMPLEMENTATION
  * before you include this file in *one* C to create the implementation.
  *
@@ -36,10 +35,14 @@
 #ifndef IO_DEF
     #ifdef IO_STATIC
         #define IO_DEF  static
+    #else
+        #define IO_DEF  extern
     #endif              /* IO_STATIC */
 #else
     #define IO_DEF  extern
 #endif                  /* IO_DEF */
+
+
 
 #if defined(__GNUC__) || defined(__clang__)
     #define ATTRIB_NONNULL(...)             __attribute__((nonnull (__VA_ARGS__)))
@@ -53,58 +56,50 @@
 
 #define IO_CHUNK_SIZE          (1024 * 64)
 
-/* 
- * Reads the file pointed to by `stream` to a buffer and returns it.
+/* Reads the file pointed to by `stream` to a buffer and returns it.
  * The returned buffer is a nul-terminated string.
  * If `nbytes` is not NULL, it shall hold the size of the file. Otherwise it
  * shall hold 0.
  * 
  * Returns NULL on memory allocation failure. The caller is responsible for
- * freeing the returned pointer.
- */
+ * freeing the returned pointer. */
 IO_DEF char *io_read_file(FILE *stream, size_t *nbytes)
     ATTRIB_NONNULL(1) ATTRIB_WARN_UNUSED_RESULT ATTRIB_MALLOC;
 
-/* 
- * Splits a string into a sequence of tokens. The `delim` argument 
+/* Splits a string into a sequence of tokens. The `delim` argument 
  * specifies a set of bytes that delimit the tokens in the parsed string.
  * If `ntokens` is not NULL, it shall hold the amount of total tokens. Else it
  * shall hold 0.
  *
  * Returns an array of pointers to the tokens, or NULL on memory allocation
- * failure. The caller is responsible for freeing the returned pointer.
- */
-IO_DEF char **io_split_by_delim(char *restrict s, const char *restrict delim,
-    size_t *ntokens) 
+ * failure. The caller is responsible for freeing the returned pointer. */
+IO_DEF char **io_split_by_delim(char s[restrict static 1], 
+                                const char delim[restrict static 1],
+                                size_t *ntokens) 
     ATTRIB_NONNULL(1, 2) ATTRIB_WARN_UNUSED_RESULT ATTRIB_MALLOC;
 
-/* 
- * Splits a string into lines.
+/* Splits a string into lines.
  * A wrapper around `io_split_by_delim()`. It calls the function with "\n" as
  * the delimiter.
  *
  * Returns an array of pointers to the tokens, or NULL on memory allocation
- * failure. The caller is responsible for freeing the returned pointer.
- */
-IO_DEF char **io_split_lines(char *s, size_t *nlines)
+ * failure. The caller is responsible for freeing the returned pointer. */
+IO_DEF char **io_split_lines(char s[restrict static 1], size_t *restrict nlines)
     ATTRIB_NONNULL(1) ATTRIB_WARN_UNUSED_RESULT ATTRIB_MALLOC;
 
-/* 
- * Reads the next chunk of data from the stream referenced to by `stream`.
+/* Reads the next chunk of data from the stream referenced to by `stream`.
  * `chunk` must be a pointer to an array of size IO_CHUNK_SIZE. 
  *
  * Returns the number of bytes read on success, or zero elsewise. The chunk is 
  * not null-terminated.
  *
  * `io_read_next_chunk()` does not distinguish between end-of-file and error; the
- * routines `feof()` and `ferror()` must be used to determine which occured.
- */
+ * routines `feof()` and `ferror()` must be used to determine which occured. */
 IO_DEF size_t io_read_next_chunk(FILE stream[static 1], 
                                  char chunk[static IO_CHUNK_SIZE])
     ATTRIB_NONNULL(1, 2) ATTRIB_WARN_UNUSED_RESULT;
 
-/* 
- * Reads the next line from the stream pointed to by `stream`. The returned line 
+/* Reads the next line from the stream pointed to by `stream`. The returned line 
  * is terminated and does not contain a newline, if one was found.
  *
  * The memory pointed to by `size` shall contain the length of the 
@@ -120,38 +115,35 @@ IO_DEF size_t io_read_next_chunk(FILE stream[static 1],
  *
  * Although a null character is always supplied after the line, note that
  * `strlen(line)` will always be smaller than the value is `size` if the line
- * contains embedded null characters.
- */
-IO_DEF char *io_read_line(FILE *stream, size_t *size)
+ * contains embedded null characters. */
+IO_DEF char *io_read_line(FILE *stream, size_t size[static 1])
     ATTRIB_NONNULL(1, 2) ATTRIB_WARN_UNUSED_RESULT ATTRIB_MALLOC;
 
-/*
- * `size` should be a non-null pointer. On success, the function assigns `size`
+/* `size` should be a non-null pointer. On success, the function assigns `size`
  * with the number of bytes read and returns true, or returns false elsewise.
  * The function also returns false if the size of the file can not be
  * represented.
  *
- * Note: The file can grow between io_fsize() and a subsequent read.
- */
-IO_DEF bool io_fsize(FILE *stream, uintmax_t *size) 
+ * Note: The file can grow between io_fsize() and a subsequent read. */
+IO_DEF bool io_fsize(FILE *stream, uintmax_t size[static 1])
     ATTRIB_NONNULL(1, 2) ATTRIB_WARN_UNUSED_RESULT;
 
-/* 
- * Writes `lines` to the file pointed to by `stream`.
+/* Writes `lines` to the file pointed to by `stream`.
  * A wrapper around 
- * On success, it returns true, or false elsewise.
- */
-IO_DEF bool io_write_lines(FILE *stream, size_t nlines, char *lines[const static nlines]) 
-    ATTRIB_NONNULL(1, 3);
+ *
+ * On success, it returns true, or false elsewise. */
+IO_DEF bool io_write_lines(FILE *stream, size_t nlines, 
+                           char *lines[static nlines]) 
+                           ATTRIB_NONNULL(1, 3);
 
-/* 
- * Writes nbytes from the buffer pointed to by `data` to the file pointed to 
+/* Writes nbytes from the buffer pointed to by `data` to the file pointed to 
  * by `stream`. 
  *
  * On success, it returns true, or false elsewise.
  */
-IO_DEF bool io_write_file(FILE *stream, size_t nbytes, const char data[static nbytes]) 
-    ATTRIB_NONNULL(1, 3);
+IO_DEF bool io_write_file(FILE *stream, size_t nbytes, 
+                          char data[static nbytes]) 
+                          ATTRIB_NONNULL(1, 3);
 
 #endif                          /* IO_H */
 
@@ -167,8 +159,10 @@ IO_DEF bool io_write_file(FILE *stream, size_t nbytes, const char data[static nb
 #define IO_FREE(p)          free(p)
 #endif
 
-#undef _POSIX_C_SOURCE
-#define _POSIX_C_SOURCE 200809L
+#ifdef _POSIX_C_SOURCE
+    #define HAVE_STAT 1
+    #include <sys/stat.h>
+#endif  /* _POSIX_C_SOURCE */
 
 #include <stdlib.h>
 #include <string.h>
@@ -224,8 +218,9 @@ IO_DEF char *io_read_file(FILE *stream, size_t *nbytes)
     return content;
 }
 
-IO_DEF char **io_split_by_delim(char *restrict s, const char *restrict delim,
-    size_t *ntokens)
+IO_DEF char **io_split_by_delim(char s[restrict static 1], 
+                                const char delim[restrict static 1],
+                                size_t *ntokens) 
 {
     char **tokens = NULL;
     size_t capacity = 0;
@@ -260,7 +255,8 @@ IO_DEF char **io_split_by_delim(char *restrict s, const char *restrict delim,
     return tokens;
 }
 
-IO_DEF char **io_split_lines(char *s, size_t *nlines)
+IO_DEF char **io_split_lines(char s[restrict static 1], 
+                             size_t *restrict nlines)
 {
     return io_split_by_delim(s, "\n", nlines);
 }
@@ -284,7 +280,7 @@ IO_DEF size_t io_read_next_chunk(FILE stream[static 1],
     return rcount;
 }
 
-IO_DEF char *io_read_line(FILE *stream, size_t *size)
+IO_DEF char *io_read_line(FILE *stream, size_t size[static 1])
 {
     size_t count = 0;
     size_t capacity = 0;
@@ -339,8 +335,7 @@ IO_DEF char *io_read_line(FILE *stream, size_t *size)
     return line;
 }
 
-/* 
- * Reasons to not use `fseek()` and `ftell()` to compute the size of the file:
+/* Reasons to not use `fseek()` and `ftell()` to compute the size of the file:
  * 
  * Subclause 7.12.9.2 of the C Standard [ISO/IEC 9899:2011] specifies the
  * following behavior when opening a binary file in binary mode:
@@ -353,76 +348,131 @@ IO_DEF char *io_read_line(FILE *stream, size_t *size)
  * >> Setting the file position indicator to end-of-file, as with 
  * >> fseek(file, 0, SEEK_END) has undefined behavior for a binary stream.
  *
- * For regular files, the file position indicator returned by ftell() is useful
- * only in calls to fseek. As such, the value returned may not be reflect the 
- * physical byte offset. 
- *
- */
-bool io_fsize(FILE *stream, uintmax_t *size)
+ * For regular files, the file position indicator returned by `ftell()` is 
+ * useful only in calls to `fseek()`. As such, the value returned may not
+ * reflect the physical byte offset. */
+IO_DEF bool io_fsize(FILE *stream, uintmax_t size[static 1])
 {
-/*
- *   Windows supports fileno(), struct stat, and fstat() as _fileno(),
- *   _fstat(), and struct _stat.
+/*   Windows supports `fileno()`, `struct stat`, and `fstat()` as `_fileno()`,
+ *   `_fstat()`, and `struct _stat`.
  *
- *   See: https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/fstat-fstat32-fstat64-fstati64-fstat32i64-fstat64i32?view=msvc-170
- */
-
+ *   See: https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/fstat-fstat32-fstat64-fstati64-fstat32i64-fstat64i32?view=msvc-170 */
 #ifdef _WIN32
+    #define HAVE_STAT 1
+    
+    /* Windows does not define S_ISREG, S_ISLNK, and S_ISDIR macros in stat.h,
+     * so we do. We have to define _CRT_INTERNAL_NONSTDC_NAMES before including
+     * sys/stat.h in order for Microsoft's stat.h to define names like S_IFMT,
+     * S_IFDIR, and S_IFREG et cetera as it normally does. */
+    #define _CRT_INTERNAL_NONSTDC_NAMES 1
+    #include <sys/stat.h>
+
+    #ifndef S_ISDIR
+        #define S_ISDIR(m)  (((m) & S_IFMT) == S_IFDIR) 
+    #endif  /* S_ISDIR */
+
+    #ifndef S_ISREG
+        #define S_ISREG(m)  (((m) & S_IFMT) == S_IFREG)
+    #endif  /* S_ISREG */
+    
+    #ifdef S_IFLNK
+        #ifndef S_ISLNK
+            #define S_ISLNK(m)  (((m) & S_IFMT) == S_IFLNK)
+        #endif  /* S_ISLINK */
+    #else
+        #define S_ISLNK(m)  (0)
+    #endif  /* S_IFLNK */
+    
     #define fileno _fileno
+
     #ifdef _WIN64
         #define fstat  _fstat64
-        #define stat   __stat64
     #else
         /* Does this suffice for a 32-bit system? */
         #define fstat  _fstat
-        #define stat   _stat
-    #endif                          /* WIN64 */
-#endif                              /* _WIN32 */
+    #endif    /* _WIN64 */
 
-/* According to https://web.archive.org/web/20191012035921/http://nadeausoftware.com/articles/2012/01/c_c_tip_how_use_compiler_predefined_macros_detect_operating_system
- * __unix__ should suffice for IBM AIX, all distributions of BSD, and all
- * distributions of Linux, and Hewlett-Packard HP-UX. __unix suffices for Oracle
- * Solaris. Mac OSX and iOS compilers do not define the conventional __unix__,
- * __unix, or unix macros, so they're checked for separately. WIN32 is defined
- * on 64-bit systems too.
- */
-#if defined(_WIN32) || defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
+    #include <io.h>
+    #include <fcntl.h>
+
+    /* MSDN requires that `stream` be flushed before calling this function,
+     * else the behavior might be unexpected. */
+    fflush(stream);
+
+    if (_setmode(fileno(stream), _O_BINARY) == -1) {
+        return false;
+    }
+#endif    /* _WIN32 */
+
+#ifdef HAVE_STAT
     struct stat st;
 
-    /* rewind() returns no value. */
-    rewind(stream);
-
     if (fstat(fileno(stream), &st) == 0) {
+        if (S_ISDIR(st.st_mode)) {
+            #ifdef EISDIR
+            errno = EISDIR;
+            #endif
+            return false;
+        } else if (!S_ISREG(st.st_mode) || !S_ISLNK(st.st_mode)) {
+            #ifdef EPERM
+            errno = EPERM;
+            #endif
+            return false;
+        }
+
+        if (st.st_size < 0) {
+            return false;
+        }
         *size = (uintmax_t) st.st_size;
         return true;
     }
     return false;
 #else
     /* Fall back to the default and read it in chunks. */
-    uintmax_t rcount = 0;
-    char chunk[IO_CHUNK_SIZE];
+    const bool is_at_end = !feof(stream);
+    long orig_pos = 0;
 
-    /* rewind() returns no value. */
+    if (!is_at_end) {
+        /* Save the original file position indicator. We'd restore this before 
+         * returning. */
+        orig_pos = ftell(stream);
+
+        if (orig_pos == -1) {
+            return false;
+        }
+    }
+
     rewind(stream);
 
+    uintmax_t rcount = 0;
+    char chunk[BUFSIZ];  
+
     do {
-        rcount = fread(chunk, 1, IO_CHUNK_SIZE, stream);
+        rcount = fread(chunk, 1, sizeof chunk, stream);
 
         if ((*size + rcount) < *size) {
             /* Overflow. */
+            #ifdef EFBIG
+            errno = EFBIG;
+            #endif
+            
+            if (!is_at_end) {
+                fseek(stream, orig_pos, SEEK_CUR);
+            }
             return false;
         }
         *size += rcount;
-    } while (rcount == IO_CHUNK_SIZE);
-    return !ferror(stream);
-#endif                          /* defined(_WIN32) || defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__)) */
+    } while (rcount == sizeof chunk);
+
+    return fseek(stream, orig_pos, SEEK_CUR) != -1 && feof(stream);
+#endif      /* HAVE_STAT */ 
 #undef fstat
-#undef stat
 #undef fileno
+#undef HAVE_STAT
 }
 
 IO_DEF bool io_write_lines(FILE *stream, size_t nlines, 
-        char *lines[const static nlines])
+                           char *lines[static nlines]) 
 {
     for (size_t i = 0; i < nlines; ++i) {
         if (fprintf(stream, "%s\n", lines[i]) < 0) {
@@ -433,8 +483,8 @@ IO_DEF bool io_write_lines(FILE *stream, size_t nlines,
     return true;
 }
 
-IO_DEF bool io_write_file(FILE *stream, size_t nbytes,
-    const char data[static nbytes])
+IO_DEF bool io_write_file(FILE *stream, size_t nbytes, 
+                          char data[static nbytes]) 
 {
     return fwrite(data, 1, nbytes, stream) == nbytes;
 }
@@ -495,7 +545,7 @@ int main(int argc, char **argv)
  
     /* This can be allocated dynamically on the heap too. */
     char chunk[IO_CHUNK_SIZE];
-    size_t chunk_size = -1;
+    size_t chunk_size = 0;
     
     while (chunk_size = io_read_next_chunk(fp, chunk)) {
         printf("Read a chunk of size: %zu.\n", chunk_size); 
@@ -521,5 +571,4 @@ int main(int argc, char **argv)
     
     return EXIT_SUCCESS;
 }
-
-#endif                          /* TEST_MAIN */
+#endif  /* TEST_MAIN */
